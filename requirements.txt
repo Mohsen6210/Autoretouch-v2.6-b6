@@ -1,0 +1,6 @@
+numpy<2
+opencv-python
+pillow
+customtkinter
+mediapipe==0.10.14
+pyinstaller
