@@ -1,0 +1,66 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build EXE with PyInstaller
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name AutoRetouch
+          --collect-all mediapipe --collect-all customtkinter
+          auto_retouch.py
+
+      - name: Self-test (face models must load inside the exe)
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "dist\AutoRetouch\AutoRetouch.exe" -ArgumentList "--selftest" -Wait
+          $r = Get-Content "dist\AutoRetouch\selftest.txt" -Raw
+          Write-Host $r
+          if ($r.Trim() -ne "OK") { throw "Self-test failed" }
+          Remove-Item "dist\AutoRetouch\selftest.txt"
+
+      - name: Self-test from a folder with a non-ASCII (Persian) name
+        shell: pwsh
+        run: |
+          $d = "C:\" + [char]0x0628 + [char]0x0631 + [char]0x0646 + [char]0x0627 + [char]0x0645 + [char]0x0647 + " test"
+          Copy-Item -Recurse "dist\AutoRetouch" $d
+          Start-Process -FilePath "$d\AutoRetouch.exe" -ArgumentList "--selftest" -Wait
+          $r = Get-Content "$d\selftest.txt" -Raw
+          Write-Host $r
+          if ($r.Trim() -ne "OK") { throw "Non-ASCII path self-test failed" }
+
+      - name: Zip portable build
+        shell: pwsh
+        run: Compress-Archive -Path dist\AutoRetouch\* -DestinationPath AutoRetouch_portable.zip
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoRetouch-portable
+          path: AutoRetouch_portable.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoRetouch-installer
+          path: Output\AutoRetouch_Setup.exe
